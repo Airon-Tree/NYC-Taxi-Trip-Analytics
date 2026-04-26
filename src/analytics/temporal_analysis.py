@@ -2,7 +2,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from pyspark import StorageLevel
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
@@ -30,7 +29,6 @@ REQUIRED_COLUMNS = [
     PICKUP_ID_COL,
     "pickup_zone",
     "pickup_borough",
-    "pickup_service_zone",
     "pickup_date",
     "year",
     "month",
@@ -41,51 +39,28 @@ REQUIRED_COLUMNS = [
     "is_weekend",
     "hour",
     "trip_count",
-    "avg_trip_distance",
-    "total_trip_distance",
-    "avg_trip_duration_min",
-    "total_trip_duration_min",
-    "avg_fare_amount",
-    "total_fare_amount",
-    "avg_total_amount",
     "total_revenue",
-    "avg_tip_amount",
-    "total_tip_amount",
-    "total_tolls_amount",
-    "total_airport_fee",
-    "avg_passenger_count",
+    "total_fare_amount",
+    "total_trip_distance",
+    "total_trip_duration_min",
     "total_passenger_count",
-    "avg_speed_mph",
     "credit_card_trip_count",
     "cash_trip_count",
-    "credit_card_share",
-    "cash_share",
 ]
 
 
 def validate_input_schema(df: DataFrame) -> None:
-    """
-    Check whether the Stage 3 zone_hour_features table has the columns
-    needed by Stage 4.
-    """
-    missing_cols = [col_name for col_name in REQUIRED_COLUMNS if col_name not in df.columns]
+    missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
 
     if missing_cols:
         raise ValueError(
-            "Missing required columns in zone_hour_features:\n"
-            + "\n".join(f"- {col_name}" for col_name in missing_cols)
-            + "\n\nPlease rerun Stage 3: python src/FeatureAndSpatial/zone_hour_features.py"
+            "Missing columns in zone_hour_features: "
+            + ", ".join(missing_cols)
+            + "\nPlease rerun Stage 3 first."
         )
 
 
 def add_weighted_metrics(df: DataFrame) -> DataFrame:
-    """
-    Add weighted average metrics after aggregation.
-
-    Since zone_hour_features is already aggregated, we should not calculate
-    plain averages of avg_* columns again. Instead, we recompute averages
-    from total columns.
-    """
     return (
         df.withColumn(
             "avg_revenue_per_trip",
@@ -94,10 +69,6 @@ def add_weighted_metrics(df: DataFrame) -> DataFrame:
         .withColumn(
             "avg_fare_amount",
             F.when(F.col("total_trips") > 0, F.col("total_fare_amount") / F.col("total_trips")),
-        )
-        .withColumn(
-            "avg_total_amount",
-            F.when(F.col("total_trips") > 0, F.col("total_revenue") / F.col("total_trips")),
         )
         .withColumn(
             "avg_trip_distance",
@@ -135,9 +106,6 @@ def add_weighted_metrics(df: DataFrame) -> DataFrame:
 
 
 def aggregate_demand(df: DataFrame, group_cols: list[str]) -> DataFrame:
-    """
-    Standard aggregation function for most temporal analysis tables.
-    """
     agg_df = (
         df.groupBy(*group_cols)
         .agg(
@@ -157,12 +125,9 @@ def aggregate_demand(df: DataFrame, group_cols: list[str]) -> DataFrame:
     return add_weighted_metrics(agg_df)
 
 
-def build_kpi_summary(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One-row summary table.
-    """
+def build_kpi_summary(df: DataFrame) -> DataFrame:
     return (
-        zone_hour_df.agg(
+        df.agg(
             F.sum("trip_count").alias("total_trips"),
             F.sum("total_revenue").alias("total_revenue"),
             F.min("pickup_date").alias("start_date"),
@@ -182,22 +147,14 @@ def build_kpi_summary(zone_hour_df: DataFrame) -> DataFrame:
     )
 
 
-def build_hourly_demand(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = one hour of day.
-    Shows the overall 24-hour taxi demand pattern.
-    """
-    return aggregate_demand(zone_hour_df, ["hour"]).orderBy("hour")
+def build_hourly_demand(df: DataFrame) -> DataFrame:
+    return aggregate_demand(df, ["hour"]).orderBy("hour")
 
 
-def build_daily_demand(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = one calendar date.
-    Shows daily taxi demand trend.
-    """
+def build_daily_demand(df: DataFrame) -> DataFrame:
     return (
         aggregate_demand(
-            zone_hour_df,
+            df,
             [
                 "pickup_date",
                 "year",
@@ -212,31 +169,13 @@ def build_daily_demand(zone_hour_df: DataFrame) -> DataFrame:
     )
 
 
-def build_monthly_demand(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = one year-month.
-    Shows monthly taxi demand trend.
-    """
-    return (
-        aggregate_demand(
-            zone_hour_df,
-            [
-                "year",
-                "month",
-                "year_month",
-            ],
-        )
-        .orderBy("year", "month")
-    )
+def build_monthly_demand(df: DataFrame) -> DataFrame:
+    return aggregate_demand(df, ["year", "month", "year_month"]).orderBy("year", "month")
 
 
-def build_weekday_weekend_hourly(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = weekday/weekend + hour.
-    Compares weekday and weekend demand patterns.
-    """
+def build_weekday_weekend_hourly(df: DataFrame) -> DataFrame:
     return (
-        aggregate_demand(zone_hour_df, ["is_weekend", "hour"])
+        aggregate_demand(df, ["is_weekend", "hour"])
         .withColumn(
             "day_type",
             F.when(F.col("is_weekend") == 1, F.lit("weekend")).otherwise(F.lit("weekday")),
@@ -249,7 +188,6 @@ def build_weekday_weekend_hourly(zone_hour_df: DataFrame) -> DataFrame:
             "total_revenue",
             "avg_revenue_per_trip",
             "avg_fare_amount",
-            "avg_total_amount",
             "avg_trip_distance",
             "avg_trip_duration_min",
             "avg_passenger_count",
@@ -262,48 +200,23 @@ def build_weekday_weekend_hourly(zone_hour_df: DataFrame) -> DataFrame:
     )
 
 
-def build_weekday_hour_heatmap(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = weekday + hour.
-    This table is ready for a weekday-hour heatmap.
-    """
+def build_weekday_hour_heatmap(df: DataFrame) -> DataFrame:
     return (
-        aggregate_demand(
-            zone_hour_df,
-            [
-                "day_of_week",
-                "weekday_name",
-                "hour",
-            ],
-        )
+        aggregate_demand(df, ["day_of_week", "weekday_name", "hour"])
         .orderBy("day_of_week", "hour")
     )
 
 
-def build_borough_hourly_pattern(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = pickup borough + hour.
-    Compares hourly demand patterns across boroughs.
-    """
+def build_borough_hourly_pattern(df: DataFrame) -> DataFrame:
     return (
-        aggregate_demand(
-            zone_hour_df,
-            [
-                "pickup_borough",
-                "hour",
-            ],
-        )
+        aggregate_demand(df, ["pickup_borough", "hour"])
         .orderBy("pickup_borough", "hour")
     )
 
 
-def build_rush_hour_summary(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = manually defined time period.
-    Useful for presentation/report explanation.
-    """
+def build_rush_hour_summary(df: DataFrame) -> DataFrame:
     labeled_df = (
-        zone_hour_df.withColumn(
+        df.withColumn(
             "time_period_order",
             F.when((F.col("hour") >= 0) & (F.col("hour") <= 5), F.lit(1))
             .when((F.col("hour") >= 6) & (F.col("hour") <= 10), F.lit(2))
@@ -327,36 +240,10 @@ def build_rush_hour_summary(zone_hour_df: DataFrame) -> DataFrame:
     )
 
 
-def build_borough_weekday_summary(zone_hour_df: DataFrame) -> DataFrame:
-    """
-    One row = borough + weekday.
-    Shows how weekly patterns differ by borough.
-    """
-    return (
-        aggregate_demand(
-            zone_hour_df,
-            [
-                "pickup_borough",
-                "day_of_week",
-                "weekday_name",
-            ],
-        )
-        .orderBy("pickup_borough", "day_of_week")
-    )
-
-
-def build_top_zones_by_hour(zone_hour_df: DataFrame, top_n: int = 10) -> DataFrame:
-    """
-    For each hour of day, find the top pickup zones by demand.
-    """
+def build_top_zones_by_hour(df: DataFrame, top_n: int) -> DataFrame:
     zone_hour_totals = aggregate_demand(
-        zone_hour_df,
-        [
-            "hour",
-            PICKUP_ID_COL,
-            "pickup_zone",
-            "pickup_borough",
-        ],
+        df,
+        ["hour", PICKUP_ID_COL, "pickup_zone", "pickup_borough"],
     )
 
     rank_window = Window.partitionBy("hour").orderBy(
@@ -371,33 +258,16 @@ def build_top_zones_by_hour(zone_hour_df: DataFrame, top_n: int = 10) -> DataFra
     )
 
 
-def build_top_zones_overall(zone_hour_df: DataFrame, top_n: int = 25) -> DataFrame:
-    """
-    Overall top pickup zones by total trips.
-    """
+def build_top_zones_overall(df: DataFrame, top_n: int = 25) -> DataFrame:
     zone_totals = aggregate_demand(
-        zone_hour_df,
-        [
-            PICKUP_ID_COL,
-            "pickup_zone",
-            "pickup_borough",
-        ],
+        df,
+        [PICKUP_ID_COL, "pickup_zone", "pickup_borough"],
     )
 
-    return (
-        zone_totals.orderBy(F.desc("total_trips"), F.desc("total_revenue"))
-        .limit(top_n)
-    )
+    return zone_totals.orderBy(F.desc("total_trips"), F.desc("total_revenue")).limit(top_n)
 
 
-def write_output_table(df: DataFrame, table_name: str, write_csv: bool = False) -> None:
-    """
-    Save output table as parquet.
-    Optionally also save CSV.
-
-    Spark writes parquet/csv as directories containing part files.
-    This is normal for Spark jobs.
-    """
+def write_output_table(df: DataFrame, table_name: str, write_csv: bool) -> None:
     PARQUET_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     parquet_path = PARQUET_OUTPUT_DIR / table_name
@@ -408,8 +278,6 @@ def write_output_table(df: DataFrame, table_name: str, write_csv: bool = False) 
         CSV_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         csv_path = CSV_OUTPUT_DIR / table_name
-
-        # Stage 4 outputs are small aggregated tables, so coalesce(1) is safe here.
         (
             df.coalesce(1)
             .write
@@ -417,16 +285,10 @@ def write_output_table(df: DataFrame, table_name: str, write_csv: bool = False) 
             .option("header", True)
             .csv(str(csv_path))
         )
-
         print(f"CSV saved: {csv_path}")
 
 
-
 def write_stage4_readme(write_csv: bool, top_n: int) -> None:
-    """
-    Write README explaining Stage 4 outputs.
-    This version avoids nested markdown code blocks inside Python strings.
-    """
     TEMPORAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     csv_note = (
@@ -438,20 +300,130 @@ def write_stage4_readme(write_csv: bool, top_n: int) -> None:
     content = f"""
 # Stage 4 - Temporal + Analytics Outputs
 
-# This folder stores the output tables generated by:
+This folder stores Stage 4 temporal analytics output tables.
 
-# python src/analytics/temporal_analysis.py
+Run command:
 
-## Required Input
+python src/analytics/temporal_analysis.py
 
-# data/processed/zone_hour_features/
+Required input:
 
-# This input is created by Stage 3. Each row represents one pickup zone in one date-hour bucket.
+data/processed/zone_hour_features/
 
-## Output Format
+Main output:
 
-##Main output format:
+outputs/tables/temporal/parquet/
 
-#outputs/tables/temporal/parquet/
+{csv_note}
 
+Demand definition:
+
+pickup demand = trip_count
+
+Output tables:
+
+1. kpi_summary
+- One-row summary of total trips, revenue, date range, active days, and active zones.
+
+2. hourly_demand
+- One row per hour of day.
+- Used to analyze 24-hour taxi demand pattern.
+
+3. daily_demand
+- One row per pickup date.
+- Used to analyze daily demand trend.
+
+4. monthly_demand
+- One row per year-month.
+- Used to analyze monthly demand trend.
+
+5. weekday_weekend_hourly
+- One row per weekday/weekend flag and hour.
+- Used to compare weekday and weekend hourly patterns.
+
+6. weekday_hour_heatmap
+- One row per weekday and hour.
+- Ready for weekday-hour heatmap visualization.
+
+7. borough_hourly_pattern
+- One row per pickup borough and hour.
+- Used to compare hourly demand across boroughs.
+
+8. rush_hour_summary
+- One row per time period.
+- Time periods: late_night_00_05, morning_peak_06_10, midday_11_15, evening_peak_16_19, night_20_23.
+
+9. top_zones_by_hour
+- Top {top_n} pickup zones for each hour.
+
+10. top_zones_overall
+- Overall top pickup zones by total trips.
+
+Notes:
+- Stage 4 does not read raw trip records directly.
+- Stage 4 reads the Stage 3 zone_hour_features table.
+- Spark writes parquet and CSV outputs as folders containing part files.
 """
+
+    README_OUTPUT_PATH.write_text(content.strip() + "\n", encoding="utf-8")
+    print(f"README saved: {README_OUTPUT_PATH}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Stage 4 - Temporal + Analytics")
+    parser.add_argument(
+        "--input",
+        default=ZONE_HOUR_FEATURES_PATH,
+        help="Input path for Stage 3 zone_hour_features parquet.",
+    )
+    parser.add_argument(
+        "--write-csv",
+        action="store_true",
+        help="Also write CSV outputs.",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="Number of top pickup zones to keep for each hour.",
+    )
+
+    args = parser.parse_args()
+
+    spark = create_spark_session(ANALYTICS_APP_NAME)
+
+    zone_hour_df = spark.read.parquet(args.input)
+    validate_input_schema(zone_hour_df)
+
+    print("\n===== Stage 4 input schema =====")
+    zone_hour_df.printSchema()
+
+    print("\n===== Stage 4 input preview =====")
+    zone_hour_df.show(10, truncate=False)
+
+    output_tables = {
+        "kpi_summary": build_kpi_summary(zone_hour_df),
+        "hourly_demand": build_hourly_demand(zone_hour_df),
+        "daily_demand": build_daily_demand(zone_hour_df),
+        "monthly_demand": build_monthly_demand(zone_hour_df),
+        "weekday_weekend_hourly": build_weekday_weekend_hourly(zone_hour_df),
+        "weekday_hour_heatmap": build_weekday_hour_heatmap(zone_hour_df),
+        "borough_hourly_pattern": build_borough_hourly_pattern(zone_hour_df),
+        "rush_hour_summary": build_rush_hour_summary(zone_hour_df),
+        "top_zones_by_hour": build_top_zones_by_hour(zone_hour_df, args.top_n),
+        "top_zones_overall": build_top_zones_overall(zone_hour_df),
+    }
+
+    for table_name, table_df in output_tables.items():
+        print(f"\n===== Writing {table_name} =====")
+        table_df.show(20, truncate=False)
+        write_output_table(table_df, table_name, args.write_csv)
+
+    write_stage4_readme(args.write_csv, args.top_n)
+
+    spark.stop()
+    print("\nStage 4 Temporal + Analytics completed successfully.")
+
+
+if __name__ == "__main__":
+    main()
