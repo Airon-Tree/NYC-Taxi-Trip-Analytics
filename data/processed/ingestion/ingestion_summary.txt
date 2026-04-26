@@ -1,0 +1,52 @@
+===== Raw Trips Schema =====
+root
+ |-- VendorID: long (nullable = true)
+ |-- tpep_pickup_datetime: timestamp_ntz (nullable = true)
+ |-- tpep_dropoff_datetime: timestamp_ntz (nullable = true)
+ |-- passenger_count: double (nullable = true)
+ |-- trip_distance: double (nullable = true)
+ |-- RatecodeID: double (nullable = true)
+ |-- store_and_fwd_flag: string (nullable = true)
+ |-- PULocationID: integer (nullable = true)
+ |-- DOLocationID: integer (nullable = true)
+ |-- payment_type: long (nullable = true)
+ |-- fare_amount: double (nullable = true)
+ |-- extra: double (nullable = true)
+ |-- mta_tax: double (nullable = true)
+ |-- tip_amount: double (nullable = true)
+ |-- tolls_amount: double (nullable = true)
+ |-- improvement_surcharge: double (nullable = true)
+ |-- total_amount: double (nullable = true)
+ |-- congestion_surcharge: double (nullable = true)
+ |-- airport_fee: double (nullable = true)
+
+
+===== Raw Trips Row Count =====
+79479946
+
+===== Raw Trips Sample Rows =====
+Row(VendorID=2, tpep_pickup_datetime=datetime.datetime(2023, 1, 1, 0, 32, 10), tpep_dropoff_datetime=datetime.datetime(2023, 1, 1, 0, 40, 36), passenger_count=1.0, trip_distance=0.97, RatecodeID=1.0, store_and_fwd_flag='N', PULocationID=161, DOLocationID=141, payment_type=2, fare_amount=9.3, extra=1.0, mta_tax=0.5, tip_amount=0.0, tolls_amount=0.0, improvement_surcharge=1.0, total_amount=14.3, congestion_surcharge=2.5, airport_fee=0.0)
+Row(VendorID=2, tpep_pickup_datetime=datetime.datetime(2023, 1, 1, 0, 55, 8), tpep_dropoff_datetime=datetime.datetime(2023, 1, 1, 1, 1, 27), passenger_count=1.0, trip_distance=1.1, RatecodeID=1.0, store_and_fwd_flag='N', PULocationID=43, DOLocationID=237, payment_type=1, fare_amount=7.9, extra=1.0, mta_tax=0.5, tip_amount=4.0, tolls_amount=0.0, improvement_surcharge=1.0, total_amount=16.9, congestion_surcharge=2.5, airport_fee=0.0)
+Row(VendorID=2, tpep_pickup_datetime=datetime.datetime(2023, 1, 1, 0, 25, 4), tpep_dropoff_datetime=datetime.datetime(2023, 1, 1, 0, 37, 49), passenger_count=1.0, trip_distance=2.51, RatecodeID=1.0, store_and_fwd_flag='N', PULocationID=48, DOLocationID=238, payment_type=1, fare_amount=14.9, extra=1.0, mta_tax=0.5, tip_amount=15.0, tolls_amount=0.0, improvement_surcharge=1.0, total_amount=34.9, congestion_surcharge=2.5, airport_fee=0.0)
+Row(VendorID=1, tpep_pickup_datetime=datetime.datetime(2023, 1, 1, 0, 3, 48), tpep_dropoff_datetime=datetime.datetime(2023, 1, 1, 0, 13, 25), passenger_count=0.0, trip_distance=1.9, RatecodeID=1.0, store_and_fwd_flag='N', PULocationID=138, DOLocationID=7, payment_type=1, fare_amount=12.1, extra=7.25, mta_tax=0.5, tip_amount=0.0, tolls_amount=0.0, improvement_surcharge=1.0, total_amount=20.85, congestion_surcharge=0.0, airport_fee=1.25)
+Row(VendorID=2, tpep_pickup_datetime=datetime.datetime(2023, 1, 1, 0, 10, 29), tpep_dropoff_datetime=datetime.datetime(2023, 1, 1, 0, 21, 19), passenger_count=1.0, trip_distance=1.43, RatecodeID=1.0, store_and_fwd_flag='N', PULocationID=107, DOLocationID=79, payment_type=1, fare_amount=11.4, extra=1.0, mta_tax=0.5, tip_amount=3.28, tolls_amount=0.0, improvement_surcharge=1.0, total_amount=19.68, congestion_surcharge=2.5, airport_fee=0.0)
+
+
+===== Zone Lookup Schema =====
+root
+ |-- LocationID: integer (nullable = true)
+ |-- Borough: string (nullable = true)
+ |-- Zone: string (nullable = true)
+ |-- service_zone: string (nullable = true)
+
+
+===== Zone Lookup Row Count =====
+265
+
+===== Zone Lookup Sample Rows =====
+Row(LocationID=1, Borough='EWR', Zone='Newark Airport', service_zone='EWR')
+Row(LocationID=2, Borough='Queens', Zone='Jamaica Bay', service_zone='Boro Zone')
+Row(LocationID=3, Borough='Bronx', Zone='Allerton/Pelham Gardens', service_zone='Boro Zone')
+Row(LocationID=4, Borough='Manhattan', Zone='Alphabet City', service_zone='Yellow Zone')
+Row(LocationID=5, Borough='Staten Island', Zone='Arden Heights', service_zone='Boro Zone')
+

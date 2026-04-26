@@ -35,18 +35,25 @@ from config.config import (
 #     """
 #     return SparkSession.builder.appName(app_name).getOrCreate()
 
-def create_spark_session(app_name: str = INGESTION_APP_NAME) -> SparkSession:
-    return (
+def create_spark_session(app_name=INGESTION_APP_NAME):
+    spark = (
         SparkSession.builder
         .appName(app_name)
         .master("local[*]")
+        .config("spark.driver.host", "127.0.0.1")
+        .config("spark.driver.bindAddress", "127.0.0.1")
+        .config("spark.local.ip", "127.0.0.1")
         .config("spark.driver.memory", "8g")
         .config("spark.executor.memory", "8g")
-        .config("spark.sql.shuffle.partitions", "8")
-        .config("spark.default.parallelism", "8")
+        .config("spark.sql.shuffle.partitions", "24")
+        .config("spark.default.parallelism", "24")
+        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         .getOrCreate()
     )
 
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
 
 def get_parquet_file_paths(raw_data_dir: Path) -> list[str]:
     """
