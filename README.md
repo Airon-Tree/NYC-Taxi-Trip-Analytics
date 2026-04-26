@@ -542,7 +542,7 @@ speed = trip_distance / trip_duration
 
 该字段主要用于探索性分析，帮助识别异常速度、拥堵模式或区域差异，不直接代表官方交通速度指标。
 
-````
+```
 
 
 
@@ -571,72 +571,482 @@ Stage 4 使用 Stage 3 生成的 `zone_hour_features` 表进行时间维度分�
 - 找出每个小时最忙的 pickup zones
 - 输出 parquet 格式的分析结果，供 visualization / report / forecasting 使用
 
-## 4.2 输入数据
+The main demand metric is:
+
+```text
+pickup demand = trip_count
+```
+
+This means demand is counted by pickup location and pickup time.
+
+## 2. Input Data
+
+Stage 4 reads the Stage 3 output table:
 
 ```text
 data/processed/zone_hour_features/
+```
 
-Run command:
+This table is created by:
 
+```bash
+python src/FeatureAndSpatial/zone_hour_features.py
+```
+
+Each row in `zone_hour_features` represents one pickup zone during one date-hour time bucket.
+
+The expected grain is:
+
+```text
+pickup zone + pickup date + pickup hour
+```
+
+Important input columns include:
+
+| Column | Description |
+|---|---|
+| `PULocationID` | Pickup location ID |
+| `pickup_zone` | Human-readable pickup zone name |
+| `pickup_borough` | Pickup borough |
+| `pickup_date` | Pickup date |
+| `year` | Pickup year |
+| `month` | Pickup month |
+| `day` | Pickup day of month |
+| `year_month` | Year-month value |
+| `day_of_week` | Day of week |
+| `weekday_name` | Weekday name |
+| `is_weekend` | Weekend flag |
+| `hour` | Pickup hour |
+| `trip_count` | Number of trips |
+| `total_revenue` | Total revenue |
+| `total_fare_amount` | Total fare amount |
+| `total_trip_distance` | Total trip distance |
+| `total_trip_duration_min` | Total trip duration in minutes |
+| `total_passenger_count` | Total passenger count |
+| `credit_card_trip_count` | Number of credit card trips |
+| `cash_trip_count` | Number of cash trips |
+
+## 3. How to Run
+
+From the project root directory, run:
+
+```bash
 python src/analytics/temporal_analysis.py
+```
 
-Required input:
+This writes parquet outputs only.
 
-data/processed/zone_hour_features/
+To also generate CSV outputs, run:
 
-Main output:
+```bash
+python src/analytics/temporal_analysis.py --write-csv
+```
 
+To change how many top zones are kept for each hour, use:
+
+```bash
+python src/analytics/temporal_analysis.py --write-csv --top-n 5
+```
+
+By default, `--top-n` is set to `10`.
+
+## 4. Output Locations
+
+Main output path:
+
+```text
 outputs/tables/temporal/parquet/
+```
 
-CSV outputs are also generated under outputs/tables/temporal/csv/.
+Optional CSV output path:
 
-Demand definition:
+```text
+outputs/tables/temporal/csv/
+```
 
-pickup demand = trip_count
+Spark writes parquet and CSV outputs as directories containing `part-*` files. This is expected behavior for Spark jobs.
 
-Output tables:
+Example parquet output structure:
 
-1. kpi_summary
-- One-row summary of total trips, revenue, date range, active days, and active zones.
+```text
+outputs/tables/temporal/parquet/
+  kpi_summary/
+  hourly_demand/
+  daily_demand/
+  monthly_demand/
+  weekday_weekend_hourly/
+  weekday_hour_heatmap/
+  borough_hourly_pattern/
+  rush_hour_summary/
+  top_zones_by_hour/
+  top_zones_overall/
+```
 
-2. hourly_demand
-- One row per hour of day.
-- Used to analyze 24-hour taxi demand pattern.
+If `--write-csv` is used, the CSV folder will have the same table names:
 
-3. daily_demand
-- One row per pickup date.
-- Used to analyze daily demand trend.
+```text
+outputs/tables/temporal/csv/
+  kpi_summary/
+  hourly_demand/
+  daily_demand/
+  monthly_demand/
+  weekday_weekend_hourly/
+  weekday_hour_heatmap/
+  borough_hourly_pattern/
+  rush_hour_summary/
+  top_zones_by_hour/
+  top_zones_overall/
+```
 
-4. monthly_demand
-- One row per year-month.
-- Used to analyze monthly demand trend.
+## 5. Output Tables
 
-5. weekday_weekend_hourly
-- One row per weekday/weekend flag and hour.
-- Used to compare weekday and weekend hourly patterns.
+### 5.1 `kpi_summary`
 
-6. weekday_hour_heatmap
-- One row per weekday and hour.
-- Ready for weekday-hour heatmap visualization.
+One-row summary table for the full Stage 4 dataset.
 
-7. borough_hourly_pattern
-- One row per pickup borough and hour.
-- Used to compare hourly demand across boroughs.
+Purpose:
 
-8. rush_hour_summary
-- One row per time period.
-- Time periods: late_night_00_05, morning_peak_06_10, midday_11_15, evening_peak_16_19, night_20_23.
+- Provides a high-level overview of the analysis period.
+- Summarizes total demand, total revenue, active days, active pickup zones, and active boroughs.
 
-9. top_zones_by_hour
-- Top 10 pickup zones for each hour.
+Main columns:
 
-10. top_zones_overall
-- Overall top pickup zones by total trips.
+| Column | Description |
+|---|---|
+| `total_trips` | Total number of pickup trips |
+| `total_revenue` | Total revenue |
+| `start_date` | Earliest pickup date |
+| `end_date` | Latest pickup date |
+| `active_days` | Number of unique pickup dates |
+| `active_pickup_zones` | Number of active pickup zones |
+| `active_boroughs` | Number of active pickup boroughs |
+| `avg_trips_per_day` | Average trips per active day |
+| `avg_revenue_per_day` | Average revenue per active day |
 
-Notes:
-- Stage 4 does not read raw trip records directly.
-- Stage 4 reads the Stage 3 zone_hour_features table.
-- Spark writes parquet and CSV outputs as folders containing part files.
+---
+
+### 5.2 `hourly_demand`
+
+One row represents one hour of the day.
+
+Purpose:
+
+- Shows the overall 24-hour taxi demand pattern.
+- Helps identify morning, afternoon, evening, night, and late-night demand changes.
+
+Grain:
+
+```text
+hour
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `hour` | Pickup hour, from 0 to 23 |
+| `total_trips` | Total trips during that hour |
+| `total_revenue` | Total revenue during that hour |
+| `avg_revenue_per_trip` | Average revenue per trip |
+| `avg_fare_amount` | Average fare amount |
+| `avg_trip_distance` | Average trip distance |
+| `avg_trip_duration_min` | Average trip duration in minutes |
+| `avg_passenger_count` | Average passenger count |
+| `credit_card_share` | Share of trips paid by credit card |
+| `cash_share` | Share of trips paid by cash |
+
+---
+
+### 5.3 `daily_demand`
+
+One row represents one pickup date.
+
+Purpose:
+
+- Shows daily demand trend.
+- Helps identify high-demand days, low-demand days, and possible abnormal days.
+
+Grain:
+
+```text
+pickup_date
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `pickup_date` | Pickup date |
+| `year` | Year |
+| `month` | Month |
+| `day` | Day of month |
+| `day_of_week` | Day of week |
+| `weekday_name` | Weekday name |
+| `is_weekend` | Weekend flag |
+| `total_trips` | Total trips on that date |
+| `total_revenue` | Total revenue on that date |
+
+---
+
+### 5.4 `monthly_demand`
+
+One row represents one year-month.
+
+Purpose:
+
+- Shows monthly taxi demand trend.
+- Supports simple seasonal or month-level comparison.
+
+Grain:
+
+```text
+year + month + year_month
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `year` | Year |
+| `month` | Month |
+| `year_month` | Year-month label |
+| `total_trips` | Total trips in the month |
+| `total_revenue` | Total revenue in the month |
+| `avg_revenue_per_trip` | Average revenue per trip |
+| `avg_trip_distance` | Average trip distance |
+| `avg_trip_duration_min` | Average trip duration in minutes |
+
+---
+
+### 5.5 `weekday_weekend_hourly`
+
+One row represents one day type and one hour.
+
+Purpose:
+
+- Compares weekday and weekend hourly demand patterns.
+- Helps show whether weekday demand is more commute-driven and whether weekend demand has a different shape.
+
+Grain:
+
+```text
+day_type + hour
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `day_type` | `weekday` or `weekend` |
+| `is_weekend` | Weekend flag |
+| `hour` | Pickup hour |
+| `total_trips` | Total trips |
+| `total_revenue` | Total revenue |
+| `avg_revenue_per_trip` | Average revenue per trip |
+| `avg_trip_distance` | Average trip distance |
+| `avg_trip_duration_min` | Average trip duration in minutes |
+
+---
+
+### 5.6 `weekday_hour_heatmap`
+
+One row represents one weekday and one hour.
+
+Purpose:
+
+- Provides a table ready for weekday-hour heatmap visualization.
+- Shows which weekday-hour combinations have the strongest demand.
+
+Grain:
+
+```text
+day_of_week + hour
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `day_of_week` | Numeric day of week |
+| `weekday_name` | Weekday name |
+| `hour` | Pickup hour |
+| `total_trips` | Total trips |
+| `total_revenue` | Total revenue |
+
+Recommended visualization:
+
+```text
+x-axis: hour
+y-axis: weekday_name
+color: total_trips
+```
+
+---
+
+### 5.7 `borough_hourly_pattern`
+
+One row represents one pickup borough and one hour.
+
+Purpose:
+
+- Compares hourly demand patterns across boroughs.
+- Helps connect temporal demand with spatial location.
+
+Grain:
+
+```text
+pickup_borough + hour
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `pickup_borough` | Pickup borough |
+| `hour` | Pickup hour |
+| `total_trips` | Total trips |
+| `total_revenue` | Total revenue |
+| `avg_trip_distance` | Average trip distance |
+| `avg_trip_duration_min` | Average trip duration in minutes |
+
+---
+
+### 5.8 `rush_hour_summary`
+
+One row represents one manually defined time period.
+
+Purpose:
+
+- Summarizes demand by business-friendly time periods.
+- Useful for presentation and report writing.
+
+Time period definitions:
+
+| Time Period | Hour Range |
+|---|---|
+| `late_night_00_05` | 00:00 - 05:59 |
+| `morning_peak_06_10` | 06:00 - 10:59 |
+| `midday_11_15` | 11:00 - 15:59 |
+| `evening_peak_16_19` | 16:00 - 19:59 |
+| `night_20_23` | 20:00 - 23:59 |
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `time_period_order` | Sort order for the time period |
+| `time_period` | Time period label |
+| `total_trips` | Total trips |
+| `total_revenue` | Total revenue |
+| `avg_revenue_per_trip` | Average revenue per trip |
+| `avg_trip_distance` | Average trip distance |
+| `avg_trip_duration_min` | Average trip duration in minutes |
+
+---
+
+### 5.9 `top_zones_by_hour`
+
+One row represents one top pickup zone within one hour.
+
+Purpose:
+
+- Finds the busiest pickup zones for each hour of the day.
+- Connects temporal analytics with spatial hotspot analysis.
+- Useful for identifying how demand hotspots change across the day.
+
+Grain:
+
+```text
+hour + pickup zone
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `hour` | Pickup hour |
+| `PULocationID` | Pickup location ID |
+| `pickup_zone` | Pickup zone name |
+| `pickup_borough` | Pickup borough |
+| `zone_rank_in_hour` | Rank within that hour |
+| `total_trips` | Total trips |
+| `total_revenue` | Total revenue |
+
+By default, this table keeps the top 10 zones per hour. This can be changed with:
+
+```bash
+python src/analytics/temporal_analysis.py --top-n 5
+```
+
+---
+
+### 5.10 `top_zones_overall`
+
+One row represents one top pickup zone across the full dataset.
+
+Purpose:
+
+- Identifies the strongest pickup zones overall.
+- Useful for summary slides and final report.
+
+Grain:
+
+```text
+pickup zone
+```
+
+Main columns:
+
+| Column | Description |
+|---|---|
+| `PULocationID` | Pickup location ID |
+| `pickup_zone` | Pickup zone name |
+| `pickup_borough` | Pickup borough |
+| `total_trips` | Total trips |
+| `total_revenue` | Total revenue |
+| `avg_revenue_per_trip` | Average revenue per trip |
+| `avg_trip_distance` | Average trip distance |
+| `avg_trip_duration_min` | Average trip duration in minutes |
+
+## 6. Notes on Average Metrics
+
+The Stage 3 `zone_hour_features` table is already aggregated. Therefore, Stage 4 does not take a plain average of existing average columns.
+
+Instead, Stage 4 recomputes average metrics from total columns when possible.
+
+Examples:
+
+```text
+avg_revenue_per_trip = total_revenue / total_trips
+avg_fare_amount = total_fare_amount / total_trips
+avg_trip_distance = total_trip_distance / total_trips
+avg_trip_duration_min = total_trip_duration_min / total_trips
+avg_passenger_count = total_passenger_count / total_trips
+```
+
+This avoids incorrect results caused by averaging already-aggregated averages.
+
+## 7. Expected Use in Final Report and Presentation
+
+Recommended tables for presentation:
+
+| Output Table | Suggested Use |
+|---|---|
+| `hourly_demand` | Line chart showing 24-hour demand pattern |
+| `weekday_weekend_hourly` | Line chart comparing weekday vs weekend demand |
+| `weekday_hour_heatmap` | Heatmap showing demand by weekday and hour |
+| `borough_hourly_pattern` | Multi-line chart comparing boroughs |
+| `rush_hour_summary` | Bar chart comparing major time periods |
+| `top_zones_by_hour` | Table or chart showing hourly hotspot changes |
+
+Recommended figures:
+
+- Hourly demand line chart
+- Weekday vs weekend hourly demand chart
+- Weekday-hour heatmap
+- Borough hourly demand comparison
+- Rush hour summary bar chart
+- Top pickup zones by hour
 
 
 
