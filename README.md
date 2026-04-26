@@ -556,6 +556,26 @@ speed = trip_distance / trip_duration
 
 # Stage4 - Temporal + Analytics
 
+## 4.1 本层职责
+
+Stage 4 使用 Stage 3 生成的 `zone_hour_features` 表进行时间维度分析。  
+本阶段不直接读取 raw trip records，而是基于已经清洗、join zone lookup、并聚合到 zone-hour 粒度的中间表进行分析。
+
+核心目标：
+
+- 分析 24 小时出租车需求变化
+- 分析 weekday vs weekend 的需求差异
+- 分析 daily / monthly demand trend
+- 构建 weekday-hour heatmap 数据
+- 比较不同 borough 的 hourly demand pattern
+- 找出每个小时最忙的 pickup zones
+- 输出 parquet 格式的分析结果，供 visualization / report / forecasting 使用
+
+## 4.2 输入数据
+
+```text
+data/processed/zone_hour_features/
+
 
 
 
