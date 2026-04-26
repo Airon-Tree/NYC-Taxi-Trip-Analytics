@@ -39,14 +39,14 @@ def create_spark_session(app_name=INGESTION_APP_NAME):
     spark = (
         SparkSession.builder
         .appName(app_name)
-        .master("local[*]")
+        .master("local[2]")
         .config("spark.driver.host", "127.0.0.1")
         .config("spark.driver.bindAddress", "127.0.0.1")
         .config("spark.local.ip", "127.0.0.1")
         .config("spark.driver.memory", "8g")
         .config("spark.executor.memory", "8g")
-        .config("spark.sql.shuffle.partitions", "24")
-        .config("spark.default.parallelism", "24")
+        .config("spark.sql.shuffle.partitions", "12")
+        .config("spark.default.parallelism", "12")
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         .getOrCreate()

@@ -28,6 +28,8 @@ from src.ingestion.load_raw_data import (
 )
 
 def select_needed_columns(df: DataFrame) -> DataFrame:
+    if "Airport_fee" in df.columns and "airport_fee" not in df.columns:
+        df = df.withColumnRenamed("Airport_fee", "airport_fee")
 
     needed_cols = [
         PICKUP_TIME_COL,
@@ -119,37 +121,21 @@ def remove_numeric_invalid(df: DataFrame) -> DataFrame:
 def remove_invalid_location_ids(df: DataFrame, zones_df: DataFrame) -> DataFrame:
     """
     Keep only rows whose pickup and dropoff location IDs exist in the zone lookup table.
+    Use a small Python list instead of two joins to reduce local Spark memory usage.
     """
-    valid_zone_ids = (
-        zones_df
-        .select(F.col(ZONE_LOOKUP_ID_COL).cast("int").alias("valid_location_id"))
-        .distinct()
-    )
+    valid_zone_ids = [
+        int(row[ZONE_LOOKUP_ID_COL])
+        for row in zones_df.select(F.col(ZONE_LOOKUP_ID_COL).cast("int"))
+                           .dropna()
+                           .distinct()
+                           .collect()
+    ]
 
-    pickup_ids = F.broadcast(
-        valid_zone_ids.withColumnRenamed("valid_location_id", "valid_pu_id")
-    )
-
-    dropoff_ids = F.broadcast(
-        valid_zone_ids.withColumnRenamed("valid_location_id", "valid_do_id")
-    )
-
-    df = (
+    return (
         df
-        .join(
-            pickup_ids,
-            df[PICKUP_ID_COL] == F.col("valid_pu_id"),
-            how="inner",
-        )
-        .join(
-            dropoff_ids,
-            df[DROPOFF_ID_COL] == F.col("valid_do_id"),
-            how="inner",
-        )
-        .drop("valid_pu_id", "valid_do_id")
+        .filter(F.col(PICKUP_ID_COL).isin(valid_zone_ids))
+        .filter(F.col(DROPOFF_ID_COL).isin(valid_zone_ids))
     )
-
-    return df
 
 
 def remove_duplicates(df: DataFrame) -> DataFrame:
@@ -259,7 +245,7 @@ def main() -> None:
 
     cleaned_df, report = clean_trips(raw_trips_df, zones_df)
 
-    cleaned_df = cleaned_df.coalesce(24)
+    cleaned_df = cleaned_df.coalesce(12)
     cleaned_df.write.mode("overwrite").parquet(CLEANED_TRIPS_PATH)
     write_report_file(report, CLEANING_REPORT_PATH)
 
